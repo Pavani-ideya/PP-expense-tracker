@@ -90,6 +90,50 @@ export default function Home() {
     e.target.value = "";
   }
 
+  const needsReviewCount = transactions.filter((t) => t.needsReview).length;
+
+  async function deleteIds(ids: number[]) {
+    setError(null);
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Delete failed");
+        return;
+      }
+      setReloadToken((n) => n + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    }
+  }
+
+  async function clearNeedsReview() {
+    if (needsReviewCount === 0) return;
+    if (!confirm(`Delete all ${needsReviewCount} transactions flagged Needs Review? This can't be undone.`)) {
+      return;
+    }
+    setError(null);
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ needsReviewOnly: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Delete failed");
+        return;
+      }
+      setReloadToken((n) => n + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    }
+  }
+
   const total = transactions
     .filter((t) => !t.isTransfer)
     .reduce((sum, t) => sum + t.amount, 0);
@@ -141,13 +185,23 @@ export default function Home() {
           </div>
         )}
 
-        <div className="mt-8 flex items-baseline justify-between">
+        <div className="mt-8 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-50">
             Transactions ({transactions.length})
           </h2>
-          <span className="text-sm text-zinc-500 dark:text-zinc-400">
-            Total household spend: ${total.toFixed(2)}
-          </span>
+          <div className="flex items-center gap-4">
+            {needsReviewCount > 0 && (
+              <button
+                onClick={clearNeedsReview}
+                className="text-sm font-medium text-red-600 hover:underline dark:text-red-400"
+              >
+                Clear all {needsReviewCount} Needs Review
+              </button>
+            )}
+            <span className="text-sm text-zinc-500 dark:text-zinc-400">
+              Total household spend: ${total.toFixed(2)}
+            </span>
+          </div>
         </div>
 
         <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
@@ -158,18 +212,19 @@ export default function Home() {
                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-500">Description</th>
                 <th className="px-4 py-2 text-right text-xs font-medium uppercase text-zinc-500">Amount</th>
                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-500">Category</th>
+                <th className="px-4 py-2 text-right text-xs font-medium uppercase text-zinc-500"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 bg-white dark:divide-zinc-800 dark:bg-zinc-950">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-sm text-zinc-500">
+                  <td colSpan={5} className="px-4 py-6 text-center text-sm text-zinc-500">
                     Loading…
                   </td>
                 </tr>
               ) : transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-sm text-zinc-500">
+                  <td colSpan={5} className="px-4 py-6 text-center text-sm text-zinc-500">
                     No transactions yet. Upload a statement to get started.
                   </td>
                 </tr>
@@ -199,9 +254,19 @@ export default function Home() {
                         {t.category}
                       </span>
                     </td>
+                    <td className="whitespace-nowrap px-4 py-2 text-right text-sm">
+                      <button
+                        onClick={() => deleteIds([t.id])}
+                        className="text-zinc-400 hover:text-red-600 dark:text-zinc-600 dark:hover:text-red-400"
+                        title="Delete transaction"
+                        aria-label="Delete transaction"
+                      >
+                        ✕
+                      </button>
+                    </td>
                   </tr>
                 ))
-              )}
+              }
             </tbody>
           </table>
         </div>

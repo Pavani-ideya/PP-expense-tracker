@@ -93,6 +93,12 @@ export function parsePdfTransactions(text: string, statementYear: number): RawTr
     if (/^(balance|total|payment due|minimum payment|previous balance|new balance)/i.test(description)) {
       continue;
     }
+    // A real transaction description always has some merchant/payee text. A description made
+    // up of only numbers, dates, dollar signs, and punctuation (e.g. "90,559.24 05/21
+    // 64,977.31 05/27") is almost always a mis-parsed row from a balance-summary table that
+    // happened to start with something date-shaped and end with something amount-shaped —
+    // skip it rather than importing it as a fake transaction.
+    if (!/[A-Za-z]/.test(description)) continue;
 
     results.push({
       date: iso,
