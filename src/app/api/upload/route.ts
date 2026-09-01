@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, ensureSchema } from "@/lib/db";
+import { getDb, ensureSchema } from "@/lib/db";
 import { statements, transactions } from "@/lib/schema";
 import { parseCsvTransactions } from "@/lib/parseCsv";
 import { parsePdfTransactions } from "@/lib/parsePdf";
@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date().toISOString();
+    const db = getDb();
 
     const [statement] = await db
       .insert(statements)
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
       needsReviewCount,
     });
   } catch (err) {
-    console.error("Upload failed:", err);
+  console.error("Upload failed:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Upload failed" },
       { status: 500 }

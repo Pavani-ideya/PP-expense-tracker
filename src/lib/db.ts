@@ -4,25 +4,41 @@ import * as schema from "./schema";
 
 // Vercel's Postgres integration (Neon) injects POSTGRES_URL rather than DATABASE_URL —
 // accept either so this works whether it's set manually or wired up by the integration.
-const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+//
+// IMPORTANT: this must NOT throw at module load time. Next.js imports route modules
+// during the build's "Collecting page data" step to statically analyze them, before any
+// request is ever made and before it's guaranteed env vars are injected into that step.
+// Throwing here fails the build outright. Instead we lazily create the pool on first use,
+// inside a request, where a missing connection string is a normal runtime 500.
+let pool: Pool | null = null;
+let dbInstance: ReturnType<typeof drizzle> | null = null;
 
-if (!connectionString) {
-  throw new Error(
-    "No database connection string found. Set DATABASE_URL (local dev, in .env.local) or connect Vercel Postgres, which injects POSTGRES_URL automatically."
-  );
+function getPool(): Pool {
+  if (pool) return pool;
+  const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!connectionString) {
+    throw new Error(
+      "No database connection string found. Set DATABASE_URL (local dev, in .env.local) or connect Vercel Postgres, which injects POSTGRES_URL automatically."
+    );
+  }
+  pool = new Pool({
+    connectionString,
+    ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+  });
+  return pool;
 }
 
-const pool = new Pool({
-  connectionString,
-  ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
-});
-
-export const db = drizzle(pool, { schema });
+export function getDb() {
+  if (!dbInstance) {
+    dbInstance = drizzle(getPool(), { schema });
+  }
+  return dbInstance;
+}
 
 let bootstrapped = false;
 export async function ensureSchema() {
   if (bootstrapped) return;
-  await pool.query(`
+  await getPool().query(`
     CREATE TABLE IF NOT EXISTS statements (
       id SERIAL PRIMARY KEY,
       filename TEXT NOT NULL,
