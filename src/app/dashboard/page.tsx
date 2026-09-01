@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import "./dashboard.css";
 import KpiCard from "@/components/KpiCard";
-import DonutChart from "@/components/DonutChart";
+import PieChart from "@/components/PieChart";
 import TrendChart from "@/components/TrendChart";
 import TopMerchants from "@/components/TopMerchants";
 import type { DashboardData } from "@/lib/dashboardTypes";
@@ -88,7 +88,7 @@ export default function DashboardPage() {
                   Spending by category
                 </h2>
                 <div className="mt-4">
-                  <DonutChart data={data.categoryTotals} />
+                  <PieChart data={data.categoryTotals} />
                 </div>
               </section>
 

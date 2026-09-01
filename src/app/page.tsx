@@ -42,33 +42,52 @@ export default function Home() {
   }, [loadTransactions, reloadToken]);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     setUploading(true);
     setMessage(null);
     setError(null);
 
-    const formData = new FormData();
-    formData.append("file", file);
+    let totalImported = 0;
+    let totalNeedsReview = 0;
+    const succeeded: string[] = [];
+    const failed: { name: string; error: string }[] = [];
 
-    try {
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "Upload failed");
-      } else {
-        setMessage(
-          `Imported ${data.transactionCount} transactions from "${file.name}"` +
-            (data.needsReviewCount > 0 ? ` — ${data.needsReviewCount} flagged as Needs Review.` : ".")
-        );
-        setReloadToken((n) => n + 1);
+    // Upload sequentially rather than in parallel: each upload does its own
+    // insert against the same statements/transactions tables, and doing them
+    // one at a time keeps error reporting per-file and avoids surprising
+    // interleaved writes.
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: formData });
+        const data = await res.json();
+        if (!res.ok) {
+          failed.push({ name: file.name, error: data.error ?? "Upload failed" });
+        } else {
+          totalImported += data.transactionCount;
+          totalNeedsReview += data.needsReviewCount;
+          succeeded.push(file.name);
+        }
+      } catch (err) {
+        failed.push({ name: file.name, error: err instanceof Error ? err.message : "Upload failed" });
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploading(false);
-      e.target.value = "";
     }
+
+    if (succeeded.length > 0) {
+      setMessage(
+        `Imported ${totalImported} transactions from ${succeeded.length} file${succeeded.length === 1 ? "" : "s"} (${succeeded.join(", ")})` +
+          (totalNeedsReview > 0 ? ` — ${totalNeedsReview} flagged as Needs Review.` : ".")
+      );
+      setReloadToken((n) => n + 1);
+    }
+    if (failed.length > 0) {
+      setError(failed.map((f) => `${f.name}: ${f.error}`).join(" · "));
+    }
+
+    setUploading(false);
+    e.target.value = "";
   }
 
   const total = transactions
@@ -95,11 +114,12 @@ export default function Home() {
         <div className="mt-6 rounded-lg border border-dashed border-zinc-300 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-900">
           <label className="flex flex-col items-center gap-3 cursor-pointer">
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {uploading ? "Uploading & parsing…" : "Click to upload a statement (.csv or .pdf)"}
+              {uploading ? "Uploading & parsing…" : "Click to upload one or more statements (.csv or .pdf)"}
             </span>
             <input
               type="file"
               accept=".csv,.pdf"
+              multiple
               className="hidden"
               disabled={uploading}
               onChange={handleFileChange}
