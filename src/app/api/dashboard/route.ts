@@ -1,31 +1,60 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getDb, ensureSchema } from "@/lib/db";
 import { transactions } from "@/lib/schema";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+// Supports optional ?month=YYYY-MM and ?category=<name> query params to filter the
+// dashboard the way a pivot-table filter would in the Excel version this replaces.
+// "all" (or omitted) means no filter on that dimension.
+export async function GET(req: NextRequest) {
   await ensureSchema();
+  const { searchParams } = new URL(req.url);
+  const monthFilter = searchParams.get("month");
+  const categoryFilter = searchParams.get("category");
+
   const rows = await getDb().select().from(transactions);
 
   // Household spend excludes personal transfers (e.g. Sreenidhi Zelle) — those aren't expenses.
-  const expenseRows = rows.filter((r) => !r.isTransfer);
+  const allExpenseRows = rows.filter((r) => !r.isTransfer);
 
-  const totalSpend = expenseRows.reduce((sum, r) => sum + r.amount, 0);
+  const availableMonths = Array.from(
+    new Set(allExpenseRows.map((r) => r.date.slice(0, 7)))
+  ).sort();
+  const availableCategories = Array.from(
+    new Set(allExpenseRows.map((r) => r.category))
+  ).sort();
 
-  // Group by calendar month (YYYY-MM) for the trend chart and monthly average.
+  // Trend chart always spans every month so a single-month filter doesn't collapse it to
+  // one bar; a category filter does narrow it, so you can see e.g. "Groceries over time".
+  const trendRows =
+    categoryFilter && categoryFilter !== "all"
+      ? allExpenseRows.filter((r) => r.category === categoryFilter)
+      : allExpenseRows;
   const byMonth = new Map<string, number>();
-  for (const r of expenseRows) {
-    const month = r.date.slice(0, 7); // YYYY-MM
+  for (const r of trendRows) {
+    const month = r.date.slice(0, 7);
     byMonth.set(month, (byMonth.get(month) ?? 0) + r.amount);
   }
   const monthlyTrend = Array.from(byMonth.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, total]) => ({ month, total: Math.round(total * 100) / 100 }));
 
-  const averageMonthly = monthlyTrend.length > 0 ? totalSpend / monthlyTrend.length : 0;
+  // KPI totals, category breakdown, and top merchants all respect both filters.
+  let expenseRows = allExpenseRows;
+  if (monthFilter && monthFilter !== "all") {
+    expenseRows = expenseRows.filter((r) => r.date.slice(0, 7) === monthFilter);
+  }
+  if (categoryFilter && categoryFilter !== "all") {
+    expenseRows = expenseRows.filter((r) => r.category === categoryFilter);
+  }
 
-  // Group by category for the donut chart.
+  const totalSpend = expenseRows.reduce((sum, r) => sum + r.amount, 0);
+
+  const monthsInView =
+    monthFilter && monthFilter !== "all" ? 1 : availableMonths.length || 1;
+  const averageMonthly = totalSpend / monthsInView;
+
   const byCategory = new Map<string, number>();
   for (const r of expenseRows) {
     byCategory.set(r.category, (byCategory.get(r.category) ?? 0) + r.amount);
@@ -55,8 +84,17 @@ export async function GET() {
     .sort((a, b) => b.total - a.total)
     .slice(0, 10);
 
-  const needsReviewCount = rows.filter((r) => r.needsReview).length;
-  const transferTotal = rows.filter((r) => r.isTransfer).reduce((sum, r) => sum + r.amount, 0);
+  // Needs-review count and transfer total follow the month filter (so they describe the
+  // period you're looking at) but not the category filter, since transfers/needs-review
+  // rows aren't assigned a normal spending category.
+  let allRowsInPeriod = rows;
+  if (monthFilter && monthFilter !== "all") {
+    allRowsInPeriod = allRowsInPeriod.filter((r) => r.date.slice(0, 7) === monthFilter);
+  }
+  const needsReviewCount = allRowsInPeriod.filter((r) => r.needsReview).length;
+  const transferTotal = allRowsInPeriod
+    .filter((r) => r.isTransfer)
+    .reduce((sum, r) => sum + r.amount, 0);
 
   return NextResponse.json({
     totalSpend: round2(totalSpend),
@@ -68,6 +106,9 @@ export async function GET() {
     needsReviewCount,
     transferTotal: round2(transferTotal),
     transactionCount: rows.length,
+    availableMonths,
+    availableCategories,
+    filteredTransactionCount: expenseRows.length,
   });
 }
 

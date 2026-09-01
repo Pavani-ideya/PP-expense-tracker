@@ -9,14 +9,25 @@ import TrendChart from "@/components/TrendChart";
 import TopMerchants from "@/components/TopMerchants";
 import type { DashboardData } from "@/lib/dashboardTypes";
 
+function monthLabel(month: string) {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [month, setMonth] = useState("all");
+  const [category, setCategory] = useState("all");
 
   useEffect(() => {
     const timer = setTimeout(async () => {
+      setLoading(true);
       try {
-        const res = await fetch("/api/dashboard");
+        const params = new URLSearchParams();
+        if (month !== "all") params.set("month", month);
+        if (category !== "all") params.set("category", category);
+        const res = await fetch(`/api/dashboard?${params.toString()}`);
         const json = await res.json();
         setData(json);
       } finally {
@@ -24,7 +35,7 @@ export default function DashboardPage() {
       }
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [month, category]);
 
   const money = (n: number) =>
     n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -47,6 +58,54 @@ export default function DashboardPage() {
           </Link>
         </div>
 
+        {data && data.transactionCount > 0 && (
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+              Month
+              <select
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1 text-sm text-[var(--text-primary)]"
+              >
+                <option value="all">All months</option>
+                {data.availableMonths.map((m) => (
+                  <option key={m} value={m}>
+                    {monthLabel(m)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+              Category
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1 text-sm text-[var(--text-primary)]"
+              >
+                <option value="all">All categories</option>
+                {data.availableCategories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {(month !== "all" || category !== "all") && (
+              <button
+                onClick={() => {
+                  setMonth("all");
+                  setCategory("all");
+                }}
+                className="text-sm font-medium text-[var(--series-1)] hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
+
         {loading || !data ? (
           <div className="mt-10 text-sm text-[var(--text-secondary)]">Loading…</div>
         ) : data.transactionCount === 0 ? (
@@ -57,10 +116,17 @@ export default function DashboardPage() {
             </Link>{" "}
             to get started.
           </div>
+        ) : data.filteredTransactionCount === 0 ? (
+          <div className="mt-10 rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center text-sm text-[var(--text-secondary)]">
+            No transactions match this filter.
+          </div>
         ) : (
           <>
             <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <KpiCard label="Total spend" value={money(data.totalSpend)} />
+              <KpiCard
+                label={month === "all" ? "Total spend" : `Spend — ${monthLabel(month)}`}
+                value={money(data.totalSpend)}
+              />
               <KpiCard label="Average monthly" value={money(data.averageMonthly)} />
               <KpiCard
                 label="Largest category"

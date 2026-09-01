@@ -55,6 +55,22 @@ export async function POST(req: NextRequest) {
     const now = new Date().toISOString();
     const db = getDb();
 
+    // Dedupe against everything already in the database (same date + description + amount),
+    // and within this file itself — statements sometimes repeat a line (e.g. a balance
+    // recap table), and re-uploading the same file/overlapping statement is common with
+    // multi-file uploads. Key is intentionally exact-match only, so two genuinely separate
+    // same-day/same-amount charges to different merchants are never dropped.
+    const existingRows = await db
+      .select({
+        date: transactions.date,
+        description: transactions.description,
+        amount: transactions.amount,
+      })
+      .from(transactions);
+    const seenKeys = new Set(
+      existingRows.map((r) => dedupeKey(r.date, r.description, r.amount))
+    );
+
     const [statement] = await db
       .insert(statements)
       .values({
@@ -65,9 +81,17 @@ export async function POST(req: NextRequest) {
       })
       .returning();
 
-    const rowsToInsert = raw.map((t) => {
+    const rowsToInsert: (typeof transactions.$inferInsert)[] = [];
+    let duplicateCount = 0;
+    for (const t of raw) {
+      const key = dedupeKey(t.date, t.description, t.amount);
+      if (seenKeys.has(key)) {
+        duplicateCount++;
+        continue;
+      }
+      seenKeys.add(key);
       const cat = categorizeTransaction(t.description);
-      return {
+      rowsToInsert.push({
         statementId: statement.id,
         date: t.date,
         description: t.description,
@@ -76,23 +100,30 @@ export async function POST(req: NextRequest) {
         isTransfer: cat.isTransfer,
         needsReview: cat.needsReview,
         createdAt: now,
-      };
-    });
+      });
+    }
 
-    await db.insert(transactions).values(rowsToInsert);
+    if (rowsToInsert.length > 0) {
+      await db.insert(transactions).values(rowsToInsert);
+    }
 
     const needsReviewCount = rowsToInsert.filter((r) => r.needsReview).length;
 
     return NextResponse.json({
       statementId: statement.id,
-      transactionCount: raw.length,
+      transactionCount: rowsToInsert.length,
       needsReviewCount,
+      duplicateCount,
     });
   } catch (err) {
-  console.error("Upload failed:", err);
+    console.error("Upload failed:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Upload failed" },
       { status: 500 }
     );
   }
+}
+
+function dedupeKey(date: string, description: string, amount: number): string {
+  return `${date}|${description.trim().toLowerCase()}|${amount.toFixed(2)}`;
 }

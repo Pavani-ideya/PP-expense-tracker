@@ -50,13 +50,16 @@ export default function Home() {
 
     let totalImported = 0;
     let totalNeedsReview = 0;
+    let totalDuplicates = 0;
     const succeeded: string[] = [];
     const failed: { name: string; error: string }[] = [];
 
     // Upload sequentially rather than in parallel: each upload does its own
     // insert against the same statements/transactions tables, and doing them
     // one at a time keeps error reporting per-file and avoids surprising
-    // interleaved writes.
+    // interleaved writes. It also means each file's duplicate check sees rows
+    // inserted by files earlier in the batch, so overlapping statements in the
+    // same upload get deduped against each other too, not just against history.
     for (const file of files) {
       const formData = new FormData();
       formData.append("file", file);
@@ -68,6 +71,7 @@ export default function Home() {
         } else {
           totalImported += data.transactionCount;
           totalNeedsReview += data.needsReviewCount;
+          totalDuplicates += data.duplicateCount ?? 0;
           succeeded.push(file.name);
         }
       } catch (err) {
@@ -78,7 +82,8 @@ export default function Home() {
     if (succeeded.length > 0) {
       setMessage(
         `Imported ${totalImported} transactions from ${succeeded.length} file${succeeded.length === 1 ? "" : "s"} (${succeeded.join(", ")})` +
-          (totalNeedsReview > 0 ? ` — ${totalNeedsReview} flagged as Needs Review.` : ".")
+          (totalNeedsReview > 0 ? ` — ${totalNeedsReview} flagged as Needs Review.` : ".") +
+          (totalDuplicates > 0 ? ` (${totalDuplicates} duplicate${totalDuplicates === 1 ? "" : "s"} skipped.)` : "")
       );
       setReloadToken((n) => n + 1);
     }
@@ -131,6 +136,31 @@ export default function Home() {
       setReloadToken((n) => n + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed");
+    }
+  }
+
+  async function removeDuplicates() {
+    setError(null);
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dedupe: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Dedupe failed");
+        return;
+      }
+      const data = await res.json();
+      setMessage(
+        data.deletedCount > 0
+          ? `Removed ${data.deletedCount} duplicate transaction${data.deletedCount === 1 ? "" : "s"}.`
+          : "No duplicates found."
+      );
+      setReloadToken((n) => n + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Dedupe failed");
     }
   }
 
@@ -190,6 +220,12 @@ export default function Home() {
             Transactions ({transactions.length})
           </h2>
           <div className="flex items-center gap-4">
+            <button
+              onClick={removeDuplicates}
+              className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Remove duplicates
+            </button>
             {needsReviewCount > 0 && (
               <button
                 onClick={clearNeedsReview}

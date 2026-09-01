@@ -8,4 +8,7 @@ export interface DashboardData {
   needsReviewCount: number;
   transferTotal: number;
   transactionCount: number;
+  availableMonths: string[];
+  availableCategories: string[];
+  filteredTransactionCount: number;
 }
