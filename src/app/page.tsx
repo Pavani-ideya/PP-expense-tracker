@@ -164,6 +164,27 @@ export default function Home() {
     }
   }
 
+  async function recheckCategories() {
+    setError(null);
+    try {
+      const res = await fetch("/api/transactions", { method: "PATCH" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Re-check failed");
+        return;
+      }
+      const data = await res.json();
+      setMessage(
+        data.updatedCount > 0
+          ? `Recategorized ${data.updatedCount} of ${data.checkedCount} Needs Review transaction${data.checkedCount === 1 ? "" : "s"}.`
+          : "No Needs Review transactions matched an updated rule."
+      );
+      setReloadToken((n) => n + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Re-check failed");
+    }
+  }
+
   const total = transactions
     .filter((t) => !t.isTransfer)
     .reduce((sum, t) => sum + t.amount, 0);
@@ -226,6 +247,14 @@ export default function Home() {
             >
               Remove duplicates
             </button>
+            {needsReviewCount > 0 && (
+              <button
+                onClick={recheckCategories}
+                className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Re-check categories
+              </button>
+            )}
             {needsReviewCount > 0 && (
               <button
                 onClick={clearNeedsReview}

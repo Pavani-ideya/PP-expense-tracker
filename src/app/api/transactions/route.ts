@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, ensureSchema } from "@/lib/db";
 import { transactions } from "@/lib/schema";
+import { categorizeTransaction } from "@/lib/categorize";
 import { desc, eq, inArray } from "drizzle-orm";
 
 export const runtime = "nodejs";
@@ -9,6 +10,33 @@ export async function GET() {
   await ensureSchema();
   const rows = await getDb().select().from(transactions).orderBy(desc(transactions.date));
   return NextResponse.json(rows);
+}
+
+// Re-runs categorization on everything currently flagged Needs Review, using today's rules.
+// Categorization only happens at upload time, so improvements to categorize.ts (e.g. adding
+// a new merchant chain) don't retroactively touch rows already sitting in the database —
+// this lets those get reclassified without re-uploading the original statement.
+export async function PATCH() {
+  await ensureSchema();
+  const db = getDb();
+  const rows = await db
+    .select({ id: transactions.id, description: transactions.description })
+    .from(transactions)
+    .where(eq(transactions.needsReview, true));
+
+  let updatedCount = 0;
+  for (const r of rows) {
+    const result = categorizeTransaction(r.description);
+    if (!result.needsReview) {
+      await db
+        .update(transactions)
+        .set({ category: result.category, isTransfer: result.isTransfer, needsReview: false })
+        .where(eq(transactions.id, r.id));
+      updatedCount++;
+    }
+  }
+
+  return NextResponse.json({ updatedCount, checkedCount: rows.length });
 }
 
 // Deletes transactions. Body is one of:
