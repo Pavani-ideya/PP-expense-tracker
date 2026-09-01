@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Expense Tracker — Phase 1
 
-## Getting Started
+Basic version: upload a CSV or PDF bank/credit-card statement, extract transactions, auto-categorize with your rules, and view them in a table. Data persists in a local SQLite database.
 
-First, run the development server:
+## Run it locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000, click "Choose file", and upload a `.csv` or `.pdf` statement.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The database file is created automatically at `data/expenses.db` on first run — it's gitignored, so history stays local to your machine (or, once deployed, lives in Postgres instead — see below).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## How categorization works
 
-## Learn More
+See `src/lib/categorize.ts`. Rules are checked in this order:
+1. Your explicit rules (Mortgage, Ana Perez → House Cleaner, Ramiro Trello → Gardener, SDGE → Gas & Electric, Olivenhain → Water, De Waal → Pool Service, Fairbanks → HOA, Zelle-to-Sreenidhi → Personal Transfer, Amazon → Amazon Purchases)
+2. Grocery store and restaurant keyword lists
+3. Secondary common categories (Insurance, Subscriptions, Phone/Internet, Travel, Gas/Fuel, Fees) — added based on patterns in a sample of your real statements, to cut down noise
+4. Anything left over is flagged **Needs Review** rather than guessed.
 
-To learn more about Next.js, take a look at the following resources:
+Transfers to Sreenidhi are tagged `isTransfer: true` and excluded from household-spend totals.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## CSV format
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Any CSV with recognizable Date / Description / Amount columns (various header names supported — see `src/lib/parseCsv.ts`). Amounts can be positive or negative; sign is normalized.
 
-## Deploy on Vercel
+## PDF format
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Text-based PDF statements are parsed line-by-line for a `date ... amount` pattern (see `src/lib/parsePdf.ts` and `src/lib/extractPdfText.ts`). Scanned/image-only PDFs won't extract — a CSV export from your bank is the more reliable path if a PDF doesn't parse.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## What's next (not built yet)
+
+- Dashboard: KPI cards, spending-by-category donut chart, monthly trend chart, top-merchants list
+- Editable categories / manual override for "Needs Review" items
+- Deployment to Vercel with Postgres (Vercel Postgres or Supabase) so history persists across deploys — current setup uses local SQLite via Drizzle ORM, which is designed to swap to Postgres with minimal schema changes
+
+## Notes on technical choices
+
+- **Drizzle ORM + better-sqlite3** instead of Prisma — Prisma's engine binaries couldn't be downloaded in this build environment (network policy blocked `binaries.prisma.sh`). Drizzle needs no native binary downloads and migrates cleanly to Postgres later.
+- **unpdf** for PDF text extraction instead of `pdf-parse` — the popular `pdf-parse` packages bundle a very old pdf.js that failed on modern PDFs (tested with two different generators). `unpdf` is a serverless-friendly, actively maintained wrapper.
+- **System fonts** instead of `next/font/google` — Google Fonts was also blocked by network policy in this build environment; won't be an issue on Vercel, but kept as-is to avoid a build-time dependency on external font fetching.
