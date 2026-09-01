@@ -68,7 +68,7 @@ export default function DashboardPage() {
                 className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1 text-sm text-[var(--text-primary)]"
               >
                 <option value="all">All months</option>
-                {data.availableMonths.map((m) => (
+                {[...data.availableMonths].reverse().map((m) => (
                   <option key={m} value={m}>
                     {monthLabel(m)}
                   </option>
