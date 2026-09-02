@@ -19,6 +19,7 @@ export const transactions = pgTable("transactions", {
   amount: real("amount").notNull(), // positive = expense/outflow
   category: text("category").notNull(), // e.g. "Groceries", "Needs Review"
   isTransfer: boolean("is_transfer").notNull().default(false), // Sreenidhi Zelle etc — excluded from household spend
+  isIncome: boolean("is_income").notNull().default(false), // money IN (deposit/credit/interest) — excluded from household spend, never an expense
   needsReview: boolean("needs_review").notNull().default(false),
   createdAt: text("created_at").notNull(),
 });

@@ -15,8 +15,9 @@ export async function GET(req: NextRequest) {
 
   const rows = await getDb().select().from(transactions);
 
-  // Household spend excludes personal transfers (e.g. Sreenidhi Zelle) — those aren't expenses.
-  const allExpenseRows = rows.filter((r) => !r.isTransfer);
+  // Household spend excludes personal transfers (e.g. Sreenidhi Zelle) and income (deposits,
+  // interest, refunds) — neither of those is an expense.
+  const allExpenseRows = rows.filter((r) => !r.isTransfer && !r.isIncome);
 
   const availableMonths = Array.from(
     new Set(allExpenseRows.map((r) => r.date.slice(0, 7)))
@@ -95,6 +96,9 @@ export async function GET(req: NextRequest) {
   const transferTotal = allRowsInPeriod
     .filter((r) => r.isTransfer)
     .reduce((sum, r) => sum + r.amount, 0);
+  const incomeTotal = allRowsInPeriod
+    .filter((r) => r.isIncome)
+    .reduce((sum, r) => sum + r.amount, 0);
 
   return NextResponse.json({
     totalSpend: round2(totalSpend),
@@ -105,6 +109,7 @@ export async function GET(req: NextRequest) {
     topMerchants,
     needsReviewCount,
     transferTotal: round2(transferTotal),
+    incomeTotal: round2(incomeTotal),
     transactionCount: rows.length,
     availableMonths,
     availableCategories,

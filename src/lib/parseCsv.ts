@@ -3,14 +3,26 @@ import { parse } from "csv-parse/sync";
 export interface RawTransaction {
   date: string; // ISO YYYY-MM-DD
   description: string;
-  amount: number; // positive = money out (expense)
+  amount: number; // positive magnitude — direction lives in isIncome
+  isIncome: boolean; // true = money IN (deposit/credit/interest/refund) — never an expense
 }
 
 // Common column name variants seen across bank/credit-card CSV exports.
 const DATE_KEYS = ["date", "transaction date", "posted date", "posting date"];
 const DESC_KEYS = ["description", "merchant", "memo", "payee", "name", "details"];
-const AMOUNT_KEYS = ["amount", "debit", "transaction amount"];
-const CREDIT_KEYS = ["credit"]; // some exports split debit/credit into two columns
+// A single combined amount column (sign indicates direction) — checked only when no separate
+// debit/credit columns exist.
+const AMOUNT_KEYS = ["amount", "transaction amount"];
+// Separate debit/credit (or withdrawal/deposit) columns — common in bank checking exports.
+const DEBIT_KEYS = ["debit", "withdrawal", "withdrawals", "money out"];
+const CREDIT_KEYS = ["credit", "deposit", "deposits", "money in"];
+// An explicit transaction-type column some exports include instead of/alongside amount.
+const TYPE_KEYS = ["type", "transaction type", "debit/credit"];
+
+// Description phrases that are unambiguously money coming IN, used as a safety net when the
+// sign/column convention is ambiguous or the file doesn't distinguish debit vs credit cleanly.
+export const INCOME_DESCRIPTION_HINTS =
+  /deposit|direct dep|payroll|interest earned|dividend|refund|reversal|cash back reward|rebate|fee waiver|zelle payment from|incoming transfer/i;
 
 function findKey(row: Record<string, string>, candidates: string[]): string | undefined {
   const keys = Object.keys(row);
@@ -56,46 +68,79 @@ export function parseCsvTransactions(fileContent: string): RawTransaction[] {
 
   const dateKey = findKey(records[0], DATE_KEYS);
   const descKey = findKey(records[0], DESC_KEYS);
-  const amountKey = findKey(records[0], AMOUNT_KEYS);
+  const debitKey = findKey(records[0], DEBIT_KEYS);
   const creditKey = findKey(records[0], CREDIT_KEYS);
+  // Only fall back to a single combined amount column when there isn't a proper debit/credit
+  // pair — otherwise a column literally named "Debit" would get matched twice.
+  const amountKey = debitKey && creditKey ? undefined : findKey(records[0], AMOUNT_KEYS);
+  const typeKey = findKey(records[0], TYPE_KEYS);
 
   const results: RawTransaction[] = [];
 
   for (const row of records) {
     const dateRaw = dateKey ? row[dateKey] : undefined;
     const descRaw = descKey ? row[descKey] : undefined;
-    const amountRaw = amountKey ? row[amountKey] : undefined;
-    const creditRaw = creditKey ? row[creditKey] : undefined;
-
     if (!dateRaw || !descRaw) continue;
 
     const date = normalizeDate(dateRaw);
     if (!date) continue;
 
+    const toNumber = (raw: string | undefined): number | null => {
+      if (raw === undefined || raw.trim() === "") return null;
+      const parsed = parseFloat(raw.replace(/[^0-9.-]/g, ""));
+      return isNaN(parsed) ? null : parsed;
+    };
+
     let amount: number | null = null;
-    if (amountRaw !== undefined && amountRaw !== "") {
-      const parsed = parseFloat(amountRaw.replace(/[^0-9.-]/g, ""));
-      if (!isNaN(parsed)) amount = parsed;
+    let isIncome = false;
+
+    if (debitKey && creditKey) {
+      // Two-column style: a value in Debit means money out, a value in Credit means money in.
+      // Both are usually stored as positive magnitudes in these exports.
+      const debitVal = toNumber(row[debitKey]);
+      const creditVal = toNumber(row[creditKey]);
+      if (debitVal !== null && debitVal !== 0) {
+        amount = Math.abs(debitVal);
+        isIncome = false;
+      } else if (creditVal !== null && creditVal !== 0) {
+        amount = Math.abs(creditVal);
+        isIncome = true;
+      }
+    } else if (amountKey) {
+      // Single combined column: sign carries the direction. Standard convention for bank
+      // checking/statement exports is negative = money out (expense), positive = money in
+      // (deposit/credit) — this is the convention that was previously being discarded by
+      // taking Math.abs() unconditionally, which is why deposits were showing up as expenses.
+      const raw = toNumber(row[amountKey]);
+      if (raw !== null) {
+        amount = Math.abs(raw);
+        isIncome = raw > 0;
+      }
     }
-    // Some exports have a separate credit column meaning money IN — skip those (not expenses),
-    // unless amount came back null and credit is the only value present.
-    if (amount === null && creditRaw) {
-      continue;
-    }
+
     if (amount === null) continue;
 
-    // Normalize sign: statements often show expenses as negative. We store expenses as positive.
-    const normalizedAmount = amount < 0 ? Math.abs(amount) : amount;
-    // Skip rows that are clearly incoming payments/credits (negative expense direction) when
-    // a distinct sign convention is detected — heuristic: if description suggests a payment/credit.
-    if (/payment received|autopay|credit balance refund/i.test(descRaw) && amount < 0) {
-      continue;
+    // An explicit type column, when present, is the most reliable signal and overrides the
+    // sign-based guess above (e.g. some exports list charges as positive numbers with a
+    // separate "Type: DEBIT/CREDIT" column).
+    const typeRaw = typeKey ? row[typeKey] : undefined;
+    if (typeRaw) {
+      const t = typeRaw.toLowerCase();
+      if (/credit|deposit/.test(t)) isIncome = true;
+      else if (/debit|withdrawal|purchase|payment/.test(t)) isIncome = false;
+    }
+
+    // Description-based safety net: catches deposits/interest/refunds on statements whose sign
+    // or column convention doesn't cleanly indicate direction.
+    if (INCOME_DESCRIPTION_HINTS.test(descRaw)) {
+      isIncome = true;
     }
 
     results.push({
       date,
       description: descRaw.trim(),
-      amount: normalizedAmount,
+      amount,
+      isIncome,
     });
   }
 

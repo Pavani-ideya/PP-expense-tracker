@@ -59,6 +59,8 @@ export async function ensureSchema() {
       needs_review BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TEXT NOT NULL
     );
+
+    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_income BOOLEAN NOT NULL DEFAULT FALSE;
   `);
   bootstrapped = true;
 }

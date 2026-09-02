@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, ensureSchema } from "@/lib/db";
-import { transactions } from "@/lib/schema";
+import { statements, transactions } from "@/lib/schema";
 import { categorizeTransaction } from "@/lib/categorize";
 import { desc, eq, inArray } from "drizzle-orm";
 
@@ -70,10 +70,19 @@ export async function PATCH(req: NextRequest) {
 //   { dedupe: true }           — remove exact-duplicate rows (same date + description +
 //                                 amount) left over from before upload-time dedup existed,
 //                                 keeping the lowest id (earliest-inserted copy) of each set.
+//   { clearAll: true }         — wipe every transaction AND statement, for a clean re-upload
+//                                 (e.g. after a parsing fix that needs the source files re-run
+//                                 through the corrected logic to pick up the correction).
 export async function DELETE(req: NextRequest) {
   await ensureSchema();
   const db = getDb();
   const body = await req.json().catch(() => ({}));
+
+  if (body.clearAll) {
+    const deleted = await db.delete(transactions).returning({ id: transactions.id });
+    await db.delete(statements);
+    return NextResponse.json({ deletedCount: deleted.length });
+  }
 
   if (body.needsReviewOnly) {
     const deleted = await db

@@ -7,6 +7,7 @@ export interface DashboardData {
   topMerchants: { merchant: string; total: number; count: number }[];
   needsReviewCount: number;
   transferTotal: number;
+  incomeTotal: number;
   transactionCount: number;
   availableMonths: string[];
   availableCategories: string[];

@@ -1,4 +1,5 @@
 import type { RawTransaction } from "./parseCsv";
+import { INCOME_DESCRIPTION_HINTS } from "./parseCsv";
 
 // Matches dates like "06/01/2026", "06/01", "Jun 01", "2026-06-01" at the start of a line —
 // the common layout for bank/credit-card statement transaction lines.
@@ -100,10 +101,16 @@ export function parsePdfTransactions(text: string, statementYear: number): RawTr
     // skip it rather than importing it as a fake transaction.
     if (!/[A-Za-z]/.test(description)) continue;
 
+    // Same sign convention as the CSV parser: negative = money out (expense), positive/
+    // parenthesized = money in (deposit/credit). Statement PDFs are the least consistent
+    // source here, so the description hint is checked too as a safety net.
+    const isIncome = amount > 0 || INCOME_DESCRIPTION_HINTS.test(description);
+
     results.push({
       date: iso,
       description,
       amount: Math.abs(amount),
+      isIncome,
     });
   }
 

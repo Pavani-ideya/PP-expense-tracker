@@ -11,6 +11,7 @@ interface Transaction {
   amount: number;
   category: string;
   isTransfer: boolean;
+  isIncome: boolean;
   needsReview: boolean;
 }
 
@@ -192,6 +193,33 @@ export default function Home() {
     await deleteIds([id]);
   }
 
+  async function clearAllData() {
+    if (
+      !confirm(
+        `Delete ALL ${transactions.length} transactions and start over? Use this after the income/expense fix so your statements re-import with deposits correctly separated from spending. This can't be undone — you'll need to re-upload your statement files afterward.`
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clearAll: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Clear failed");
+        return;
+      }
+      setMessage("All transactions cleared. Re-upload your statement files to start fresh.");
+      setReloadToken((n) => n + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Clear failed");
+    }
+  }
+
   async function recheckCategories() {
     setError(null);
     try {
@@ -214,7 +242,10 @@ export default function Home() {
   }
 
   const total = transactions
-    .filter((t) => !t.isTransfer)
+    .filter((t) => !t.isTransfer && !t.isIncome)
+    .reduce((sum, t) => sum + t.amount, 0);
+  const incomeTotal = transactions
+    .filter((t) => t.isIncome)
     .reduce((sum, t) => sum + t.amount, 0);
 
   return (
@@ -291,8 +322,15 @@ export default function Home() {
                 Clear all {needsReviewCount} Needs Review
               </button>
             )}
+            <button
+              onClick={clearAllData}
+              className="text-sm font-medium text-red-700 hover:underline dark:text-red-400"
+            >
+              Clear all data
+            </button>
             <span className="text-sm text-zinc-500 dark:text-zinc-400">
               Total household spend: ${total.toFixed(2)}
+              {incomeTotal > 0 && ` · Income: $${incomeTotal.toFixed(2)}`}
             </span>
           </div>
         </div>
@@ -339,12 +377,14 @@ export default function Home() {
                           "rounded-full px-2 py-0.5 text-xs font-medium " +
                           (t.needsReview
                             ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                            : t.isIncome
+                            ? "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300"
                             : t.isTransfer
                             ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
                             : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300")
                         }
                       >
-                        {t.category}
+                        {t.isIncome ? "Income" : t.category}
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-2 text-right text-sm">

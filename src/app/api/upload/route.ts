@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    let raw: { date: string; description: string; amount: number }[] = [];
+    let raw: { date: string; description: string; amount: number; isIncome: boolean }[] = [];
 
     if (isCsv) {
       const text = buffer.toString("utf-8");
@@ -90,7 +90,11 @@ export async function POST(req: NextRequest) {
         continue;
       }
       seenKeys.add(key);
-      const cat = categorizeTransaction(t.description);
+      // Income rows (deposits, interest, refunds) are never expenses and never need a
+      // spending category — categorization only applies to money going out.
+      const cat = t.isIncome
+        ? { category: "Income", isTransfer: false, needsReview: false }
+        : categorizeTransaction(t.description);
       rowsToInsert.push({
         statementId: statement.id,
         date: t.date,
@@ -98,6 +102,7 @@ export async function POST(req: NextRequest) {
         amount: t.amount,
         category: cat.category,
         isTransfer: cat.isTransfer,
+        isIncome: t.isIncome,
         needsReview: cat.needsReview,
         createdAt: now,
       });
