@@ -12,13 +12,38 @@ export async function GET() {
   return NextResponse.json(rows);
 }
 
-// Re-runs categorization on everything currently flagged Needs Review, using today's rules.
-// Categorization only happens at upload time, so improvements to categorize.ts (e.g. adding
-// a new merchant chain) don't retroactively touch rows already sitting in the database —
-// this lets those get reclassified without re-uploading the original statement.
-export async function PATCH() {
+// Two things happen here, chosen by the request body:
+//
+//   { approveIds: number[], category?: string } — a person has looked at specific Needs
+//   Review rows and confirmed they're genuine transactions. Assigns them the given category
+//   (defaulting to "Uncategorized") and clears needsReview so they count in totals/dashboard.
+//   Declining a row is just a normal delete (DELETE { ids: [...] }) — no separate verb needed.
+//
+//   {} (no body / no approveIds) — re-runs categorization on everything currently flagged
+//   Needs Review, using today's rules. Categorization only happens at upload time, so
+//   improvements to categorize.ts (e.g. adding a new merchant chain) don't retroactively touch
+//   rows already sitting in the database — this lets those get reclassified without
+//   re-uploading the original statement.
+export async function PATCH(req: NextRequest) {
   await ensureSchema();
   const db = getDb();
+  const body = await req.json().catch(() => ({}));
+
+  if (Array.isArray(body.approveIds) && body.approveIds.length > 0) {
+    const ids = body.approveIds.filter((n: unknown) => typeof n === "number");
+    if (ids.length === 0) {
+      return NextResponse.json({ error: "approveIds must be numbers" }, { status: 400 });
+    }
+    const category =
+      typeof body.category === "string" && body.category.trim() ? body.category.trim() : "Uncategorized";
+    const updated = await db
+      .update(transactions)
+      .set({ category, needsReview: false })
+      .where(inArray(transactions.id, ids))
+      .returning({ id: transactions.id });
+    return NextResponse.json({ approvedCount: updated.length });
+  }
+
   const rows = await db
     .select({ id: transactions.id, description: transactions.description })
     .from(transactions)

@@ -164,6 +164,34 @@ export default function Home() {
     }
   }
 
+  async function approveTransaction(id: number) {
+    const category = window.prompt(
+      "This transaction is genuine — what category should it count under? (e.g. Groceries, Utilities, Miscellaneous)",
+      "Uncategorized"
+    );
+    if (category === null) return; // cancelled
+    setError(null);
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approveIds: [id], category }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Approve failed");
+        return;
+      }
+      setReloadToken((n) => n + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Approve failed");
+    }
+  }
+
+  async function declineTransaction(id: number) {
+    await deleteIds([id]);
+  }
+
   async function recheckCategories() {
     setError(null);
     try {
@@ -320,14 +348,33 @@ export default function Home() {
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-2 text-right text-sm">
-                      <button
-                        onClick={() => deleteIds([t.id])}
-                        className="text-zinc-400 hover:text-red-600 dark:text-zinc-600 dark:hover:text-red-400"
-                        title="Delete transaction"
-                        aria-label="Delete transaction"
-                      >
-                        ✕
-                      </button>
+                      {t.needsReview ? (
+                        <div className="flex justify-end gap-3">
+                          <button
+                            onClick={() => approveTransaction(t.id)}
+                            className="text-xs font-medium text-green-600 hover:underline dark:text-green-400"
+                            title="Genuine transaction — assign a category and count it"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => declineTransaction(t.id)}
+                            className="text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                            title="Not a real expense — delete it"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => deleteIds([t.id])}
+                          className="text-zinc-400 hover:text-red-600 dark:text-zinc-600 dark:hover:text-red-400"
+                          title="Delete transaction"
+                          aria-label="Delete transaction"
+                        >
+                          ✕
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))

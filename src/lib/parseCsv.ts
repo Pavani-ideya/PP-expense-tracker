@@ -43,6 +43,13 @@ export function parseCsvTransactions(fileContent: string): RawTransaction[] {
     skip_empty_lines: true,
     trim: true,
     relax_column_count: true,
+    // Real-world bank/business CSV exports frequently have unescaped quote characters inside
+    // a field (an apostrophe or a stray " in a memo/payee string) that strict RFC 4180 parsing
+    // rejects outright with "Invalid Closing Quote". These two options tell the parser to treat
+    // a quote that doesn't cleanly close a field as ordinary text instead of failing the whole
+    // file — this is exactly the "Homesteadaug.csv" business-checking export failure mode.
+    relax_quotes: true,
+    bom: true,
   });
 
   if (records.length === 0) return [];
