@@ -265,6 +265,21 @@ export default function Home() {
           </Link>
         </div>
 
+        <div className="mt-6 grid grid-cols-2 gap-4">
+          <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="text-xs font-medium uppercase text-zinc-500 dark:text-zinc-400">Income</div>
+            <div className="mt-1 text-2xl font-semibold text-green-700 dark:text-green-400">
+              ${incomeTotal.toFixed(2)}
+            </div>
+          </div>
+          <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="text-xs font-medium uppercase text-zinc-500 dark:text-zinc-400">Outgoing</div>
+            <div className="mt-1 text-2xl font-semibold text-red-700 dark:text-red-400">
+              ${total.toFixed(2)}
+            </div>
+          </div>
+        </div>
+
         <div className="mt-6 rounded-lg border border-dashed border-zinc-300 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-900">
           <label className="flex flex-col items-center gap-3 cursor-pointer">
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -328,10 +343,6 @@ export default function Home() {
             >
               Clear all data
             </button>
-            <span className="text-sm text-zinc-500 dark:text-zinc-400">
-              Total household spend: ${total.toFixed(2)}
-              {incomeTotal > 0 && ` · Income: $${incomeTotal.toFixed(2)}`}
-            </span>
           </div>
         </div>
 
